@@ -3,7 +3,7 @@ version: '3.8'
 services:
   ubuntu_container:
     image: ubuntu:latest
-    container_name: my_ubuntu_instance
+    container_name: my_ubuntu_instance1
     command: tail -f /dev/null
     tty: true
     stdin_open: true
