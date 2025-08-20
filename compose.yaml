@@ -5,9 +5,3 @@ services:
     image: httpd:2.4
     ports:
       - "8080:80"
-    volumes:
-      # INCORRECT - Uses an absolute path from the Jenkins container's perspective
-      # - /var/lib/jenkins/workspace/docker_compose/html:/usr/local/apache2/htdocs/
-
-      # CORRECT ✅ - Uses a relative path
-      - ./html:/usr/local/apache2/htdocs/
