@@ -1,9 +1,15 @@
-version: '3.8'
+# docker-compose.yml
+
+version: '3.8' # Specifies the version of the Docker Compose file format
 
 services:
-  webserver: # Or 'my-apache-server'
-    image: httpd:2.4
+  webserver: # This is a custom name for your service
+    image: httpd:2.4 # Use the official Apache httpd image, version 2.4
+    container_name: my-apache-server # A specific name for the running container
     ports:
+      # Map port 8080 on your local machine to port 80 in the container
       - "8080:80"
     volumes:
+      # Mount a local directory named 'html' into the container's web root
+      # This allows you to edit your website files locally
       - ./html:/usr/local/apache2/htdocs/
