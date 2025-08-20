@@ -1,9 +1,13 @@
 version: '3.8'
+
 services:
-  webserver:
-    image: httpd:latest
-    container_name: my-apache-server
+  webserver: # Or 'my-apache-server'
+    image: httpd:2.4
     ports:
       - "8080:80"
     volumes:
-      - ./html:/usr/local/apache2/htdocs
+      # INCORRECT - Uses an absolute path from the Jenkins container's perspective
+      # - /var/lib/jenkins/workspace/docker_compose/html:/usr/local/apache2/htdocs/
+
+      # CORRECT ✅ - Uses a relative path
+      - ./html:/usr/local/apache2/htdocs/
