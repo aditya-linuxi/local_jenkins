@@ -6,13 +6,29 @@
 
 *Companion to the "Modern Applications CI/CD Stack on VKS" Implementation Guide (Argo CD / GitOps track)*
 ---
-### Executive Summary
+### What is Tekton
 
-Tekton is deployed as the Kubernetes-native CI orchestrator for this platform, running inside a dedicated CI-VKS cluster that is kept separate from the Runtime-VKS cluster used for application delivery. Tekton is a Cloud Native Computing Foundation (CNCF) project that extends the Kubernetes API itself, so Pipelines, Tasks and their executions are native Kubernetes objects: stored in etcd, managed with `kubectl`, and governed by the same RBAC as every other resource on the cluster.
+Tekton is a Kubernetes-native CI/CD framework, built as a CNCF project. Instead of running on a separate CI server (like Jenkins), it extends the Kubernetes API itself — so your Pipelines, Tasks, and their executions are just native Kubernetes objects, stored in etcd and managed with kubectl.
 
-This document is scoped strictly to the CI/build track. A developer commit triggers a webhook, which the EventListener turns into a PipelineRun; each step of the Pipeline runs in its own isolated Pod, sharing source code through a Workspace backed by a PersistentVolumeClaim. Once the OCI image is built, dedicated Task Pods generate a Software Bill of Materials (SBOM) with Syft and cryptographically sign the image digest with Cosign, attaching the SBOM as a verified attestation before the artifact and its supply chain evidence are pushed to Harbor.
+Pipeline = an ordered set of Tasks
+Task = one unit of work (e.g., clone code, build image), run as steps inside a Pod
+PipelineRun/TaskRun = an actual execution of a Pipeline/Task
+Triggers (EventListener, etc.) = turn a webhook (like a git push) into a PipelineRun automatically
 
-This revision extends the reference architecture with the operational path required to run the same CI stack in a disconnected production environment: a version-gated prerequisites check (Section 9), an air-gapped installation and Harbor-mirroring procedure that now also mirrors the Cosign and Syft tooling images (Section 11), and the validation, readiness, and troubleshooting artifacts needed to certify and operate the install, including signature and attestation verification (Sections 12–14).
+Because every step runs in its own isolated Pod, builds are reproducible and scale using the same Kubernetes scheduler as everything else — no separate agent fleet, and it reuses your existing Kubernetes RBAC instead of a bolted-on permission system.
+
+In your docs, it's used as the CI engine: clone → build (Buildpacks/BuildKit) → generate SBOM (Syft) → sign & attest (Cosign) → push to Harbor.
+
+### Why Tekton
+
+#### Why We Are Using Tekton in This Project
+
+- **Kubernetes-native:** runs directly on the VKS cluster we already operate — no separate CI server, VM pool, or agent fleet to patch and maintain.
+- **Fits the architecture:** the wider CI/CD design (Buildpacks/BuildKit → Syft/Cosign → Harbor → Argo CD → Istio Gateway) is built around CNCF, Kubernetes-first tooling, and Tekton is the CNCF standard for pipeline orchestration.
+- **RBAC reuse:** because Pipelines and Tasks are just Kubernetes objects, existing namespace-level RBAC policies control who can create or trigger builds — no separate permission system.
+- **Isolation and reproducibility:** every build step — including SBOM generation and signing — runs in its own Pod, so one team's build cannot leak state into another's, and a build behaves the same way every time it runs.
+- **Elastic scaling:** build load is scheduled and scaled by the same Kubernetes scheduler used for everything else on the cluster — no manual capacity planning for a separate CI farm.
+
 
 ### Tekton Architecture on VKS
 
@@ -36,17 +52,6 @@ Tekton is deployed as the Pipeline Orchestrator inside the dedicated CI-VKS clus
 [ Istio GW / cert-manager / external-dns ] ---> ( L7 Secure Routing Exposed )
 
 
-
-### Why Tekton
-
-#### Why We Are Using Tekton in This Project
-
-- **Kubernetes-native:** runs directly on the VKS cluster we already operate — no separate CI server, VM pool, or agent fleet to patch and maintain.
-- **Fits the architecture:** the wider CI/CD design (Buildpacks/BuildKit → Syft/Cosign → Harbor → Argo CD → Istio Gateway) is built around CNCF, Kubernetes-first tooling, and Tekton is the CNCF standard for pipeline orchestration.
-- **RBAC reuse:** because Pipelines and Tasks are just Kubernetes objects, existing namespace-level RBAC policies control who can create or trigger builds — no separate permission system.
-- **Isolation and reproducibility:** every build step — including SBOM generation and signing — runs in its own Pod, so one team's build cannot leak state into another's, and a build behaves the same way every time it runs.
-- **Elastic scaling:** build load is scheduled and scaled by the same Kubernetes scheduler used for everything else on the cluster — no manual capacity planning for a separate CI farm.
-
 ### Custom Resource Definitions (CRDs)
 
 A Custom Resource Definition (CRD) extends the standard Kubernetes API so the cluster understands new object types beyond the built-ins (Pod, Deployment, Service, etc.). Once a CRD is installed, Kubernetes treats the new object exactly like a native one — stored in etcd, managed through `kubectl`, and governed by the same RBAC rules.
@@ -63,6 +68,47 @@ Tekton defines its core concepts entirely as CRDs:
 - **No external dependency:** Tekton needs no separate database or control plane — it reuses the Kubernetes control plane and etcd that already exist.
 - **Standard tooling:** pipelines are managed with the same `kubectl` commands, GitOps flows, and RBAC policies used for every other Kubernetes resource.
 - **Declarative and versionable:** Pipeline/Task definitions are plain YAML, code-reviewed and stored in Git like any other manifest.
+
+
+### Prerequisites and Version Gate
+
+Before any installation path (Internet-Connected or Air-Gapped) is started, the operator workstation and the target CI-VKS cluster must satisfy the version gate below. Pinning versions up front is what makes the air-gapped mirror reproducible — the mirror workstation and the cluster must always be built against the same tag, including the Cosign and Syft tooling used for supply chain security.
+
+#### Required CLI Tooling
+
+| Tool | Purpose | Minimum Version |
+|---|---|---|
+| `kubectl` | Applies manifests and inspects cluster state on the CI-VKS cluster | Matches cluster minor version (±1) |
+| `tkn` | Tekton CLI — starts/inspects PipelineRuns, reads logs | v0.41.0 or later |
+| `skopeo` | Copies and mirrors OCI images between registries without a full Docker daemon; required for the air-gapped path | v1.14 or later |
+| `cosign` | Generates local key pairs for testing, and signs/verifies image signatures and attestations; required to validate the sign-and-attest Task output before it is trusted in production | v2.2 or later |
+| `syft` | Generates CycloneDX/SPDX SBOMs locally so a developer can validate SBOM content and structure before it is generated in-pipeline by the generate-sbom Task | v1.0 or later |
+
+#### Version-Pinning Environment Variables
+
+Export these on the mirror workstation and reference them in place of `latest` anywhere a release manifest or image tag is used:
+
+```
+export TEKTON_PIPELINES_VERSION="v0.62.0"
+export TEKTON_TRIGGERS_VERSION="v0.29.0"
+export TEKTON_DASHBOARD_VERSION="v0.51.0"
+export TEKTON_OPERATOR_VERSION="v0.75.0"
+export TKN_CLI_VERSION="v0.41.0"
+export COSIGN_VERSION="v2.2.4"
+export SYFT_VERSION="v1.0.1"
+export HARBOR_REGISTRY_HOST="harbor.internal.example.com"
+```
+
+#### Kubernetes Version Gate
+
+| Requirement | Value |
+|---|---|
+| Minimum Kubernetes / VKS version | v1.28 |
+| Recommended Kubernetes / VKS version | v1.29 or later |
+| API groups required | `apiextensions.k8s.io/v1`, `admissionregistration.k8s.io/v1` |
+| Pre-flight check | `kubectl version --short && kubectl api-versions | grep apiextensions.k8s.io/v1` |
+
+
 
 ### Sample Infrastructure Manifest (release.yaml)
 
@@ -191,46 +237,7 @@ tkn pipeline start vks-modern-app-pipeline \
   -p image-reference=harbor.local/team/sample-app:test
 tkn pipelinerun logs -f
 ```
-
-### Prerequisites and Version Gate
-
-Before any installation path (Internet-Connected or Air-Gapped) is started, the operator workstation and the target CI-VKS cluster must satisfy the version gate below. Pinning versions up front is what makes the air-gapped mirror reproducible — the mirror workstation and the cluster must always be built against the same tag, including the Cosign and Syft tooling used for supply chain security.
-
-#### Required CLI Tooling
-
-| Tool | Purpose | Minimum Version |
-|---|---|---|
-| `kubectl` | Applies manifests and inspects cluster state on the CI-VKS cluster | Matches cluster minor version (±1) |
-| `tkn` | Tekton CLI — starts/inspects PipelineRuns, reads logs | v0.41.0 or later |
-| `skopeo` | Copies and mirrors OCI images between registries without a full Docker daemon; required for the air-gapped path | v1.14 or later |
-| `cosign` | Generates local key pairs for testing, and signs/verifies image signatures and attestations; required to validate the sign-and-attest Task output before it is trusted in production | v2.2 or later |
-| `syft` | Generates CycloneDX/SPDX SBOMs locally so a developer can validate SBOM content and structure before it is generated in-pipeline by the generate-sbom Task | v1.0 or later |
-
-#### Version-Pinning Environment Variables
-
-Export these on the mirror workstation and reference them in place of `latest` anywhere a release manifest or image tag is used:
-
-```
-export TEKTON_PIPELINES_VERSION="v0.62.0"
-export TEKTON_TRIGGERS_VERSION="v0.29.0"
-export TEKTON_DASHBOARD_VERSION="v0.51.0"
-export TEKTON_OPERATOR_VERSION="v0.75.0"
-export TKN_CLI_VERSION="v0.41.0"
-export COSIGN_VERSION="v2.2.4"
-export SYFT_VERSION="v1.0.1"
-export HARBOR_REGISTRY_HOST="harbor.internal.example.com"
-```
-
-#### Kubernetes Version Gate
-
-| Requirement | Value |
-|---|---|
-| Minimum Kubernetes / VKS version | v1.28 |
-| Recommended Kubernetes / VKS version | v1.29 or later |
-| API groups required | `apiextensions.k8s.io/v1`, `admissionregistration.k8s.io/v1` |
-| Pre-flight check | `kubectl version --short && kubectl api-versions | grep apiextensions.k8s.io/v1` |
-
-> **ⓘ NOTE:** If the pre-flight check reports a cluster below v1.28, stop and remediate the cluster before proceeding — Tekton's webhook and CRD conversion behavior on older API groups is not supported by this document.
+.
 
 ### Official Release Manifests, Commands & References (Internet-Connected)
 
@@ -463,10 +470,9 @@ kubectl get secret cosign-keys -n tekton-pipelines
 > **ⓘ NOTE:** The `generate-key-pair` command with a `k8s://` destination writes `cosign.key` (encrypted with a password you supply) and `cosign.pub` directly into a new Kubernetes Secret — the private key is never written to local disk. Store the key password itself in a separate Kubernetes Secret (see Production Readiness Checklist) and reference both from the sign-and-attest Task; do not commit either to Git.
 
 
-### Summary
+### Conclusion
 
 Tekton gives this project a Kubernetes-native, CRD-based CI engine that removes the need for external build infrastructure, reuses existing RBAC boundaries, and guarantees reproducible, isolated builds per step. The Pipeline shown in the Sample Pipeline Workflow section (clone → build via Buildpacks/BuildKit → generate SBOM with Syft → sign and attest with Cosign → push) is the minimum working CI loop that can be validated locally before wiring in Harbor governance, GitOps updates, and Argo CD delivery, which are documented in the companion Argo CD implementation guide.
 
 This revision closes the gap between that reference architecture and a disconnected production rollout with software supply chain security natively enforced end to end: the Prerequisites section gates the install on the right tooling and pinned versions, including Cosign and Syft; the Air-Gapped section gives the mirror-workstation-to-Harbor path — now covering the Syft and Cosign tool images and in-cluster key generation — for environments with no outbound internet access; and the Validation Matrix, Production Readiness Checklist, and Troubleshooting sections give the validation, sign-off, and troubleshooting artifacts, including signature and attestation verification, needed to certify the CI stack as production-ready in either mode.
-
 *
