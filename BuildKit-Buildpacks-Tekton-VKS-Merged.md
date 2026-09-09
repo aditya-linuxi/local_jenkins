@@ -157,11 +157,15 @@ export BUILDER_IMAGE=paketobuildpacks/builder-jammy-base
 kubectl create namespace cicd --dry-run=client -o yaml | kubectl apply -f -
 kubectl create namespace sample-app --dry-run=client -o yaml | kubectl apply -f -
 ```
-
+```
+variable: BUILDKIT_VERSION=v0.30.0
+```
 ---
 
 ## Installation — Internet-Connected Environment
+```
 
+```
 ### 1. Install BuildKit
 ```bash
 curl -fsSL -o buildkit.tar.gz   https://github.com/moby/buildkit/releases/download/${BUILDKIT_VERSION}/buildkit-${BUILDKIT_VERSION}.linux-amd64.tar.gz
@@ -177,7 +181,9 @@ buildkitd --version
 sudo /usr/local/bin/buildkitd --addr unix:///run/buildkit/buildkitd.sock &
 sudo buildctl --addr unix:///run/buildkit/buildkitd.sock debug workers
 ```
-
+```
+  variable: HARBOR=harbor.example.internal
+```
 ### 3. Build with BuildKit — rootless, no daemon needed (recommended)
 ```bash
 # Example daemonless rootless build
@@ -210,15 +216,20 @@ skopeo copy   docker://moby/buildkit:${BUILDKIT_VERSION}   docker://$HARBOR/buil
 imgpkg copy   -i docker.io/moby/buildkit:${BUILDKIT_VERSION}   --to-repo $HARBOR/buildkit/buildkit
 ```
 
-Either works fine here since you have internet access — skopeo does a simple direct copy, imgpkg is worth using if the rest of your platform (e.g. Argo CD) already tracks images with Carvel tooling. Pick one per component, don't mix both for the same image.
+Either works fine here since you haveBUILDER_IMAGE internet access — skopeo does a simple direct copy, imgpkg is worth using if the rest of your platform (e.g. Argo CD) already tracks images with Carvel tooling. Pick one per component, don't mix both for the same image.
 
 ### 6. Run BuildKit as a Kubernetes Job/Pod
-Rootless mode usually needs Unconfined seccomp/AppArmor settings on the Pod, plus node support for unprivileged user namespaces.
+Rootless mode usually needs UnconfBuildKit releasesined seccomp/AppArmor settings on the Pod, plus node support for unprivileged user namespaces.
 ```bash
 kubectl run buildkit-test   --image=$HARBOR/buildkit/buildkit:${BUILDKIT_VERSION}   --restart=Never -n cicd   --overrides='{"spec":{"containers":[{"name":"buildkit","image":"'"$HARBOR"'/buildkit/buildkit:'"${BUILDKIT_VERSION}"'","securityContext":{"seccompProfile":{"type":"Unconfined"}}}]}}'   -- buildctl-daemonless.sh debug workers
 ```
 
 ### 7. Install the Pack CLI
+
+``` 
+variable:  PACK_VERSION=0.40.9
+```
+
 ```bash
 curl -sSL "https://github.com/buildpacks/pack/releases/download/v${PACK_VERSION}/pack-v${PACK_VERSION}-linux.tgz"   | sudo tar -C /usr/local/bin/ --no-same-owner -xzv pack
 
@@ -227,7 +238,9 @@ pack version
 
 ### 8. Check the builder image being used
 A builder image bundles the buildpacks, the build logic, and a link to the base "run image" the final app image is built on.
-
+```
+variable:  BUILDER_IMAGE=paketobuildpacks/builder-jammy-base
+```
 ```bash
 pack builder inspect $BUILDER_IMAGE
 pack builder inspect $BUILDER_IMAGE --output json
