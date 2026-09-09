@@ -627,7 +627,7 @@ Before any installation path (Internet-Connected or Air-Gapped) is started, the 
 Export these on the mirror workstation and reference them in place of `latest` anywhere a release manifest or image tag is used:
 
 ```bash
-export TEKTON_PIPELINES_VERSION="v0.62.0"
+export ="v0.62.0"
 export TEKTON_TRIGGERS_VERSION="v0.29.0"
 export TEKTON_DASHBOARD_VERSION="v0.51.0"
 export TEKTON_OPERATOR_VERSION="v0.75.0"
@@ -711,13 +711,16 @@ tkn version
 
 #### Cosign CLI — Installation
 Cosign signs the built image and attaches the SBOM as a verified attestation in the `sign-and-attest` Task, so it needs to be installed on both the operator workstation (for local testing/verification) and mirrored into the cluster image for in-pipeline use.
+```
+ variable: COSIGN_VERSION="v2.2.4"
+```
 
 ```bash
 # macOS (Homebrew)
 brew install cosign
 
-# Linux (x86_64) — pinned to COSIGN_VERSION
-curl -O -L "https://github.com/sigstore/cosign/releases/download/${COSIGN_VERSION}/cosign-linux-amd64"
+# Linux (x86_64) — pinned to 
+curl -O -L "https://github.com/sigstore/cosign/releases/download/${}/cosign-linux-amd64"
 sudo mv cosign-linux-amd64 /usr/local/bin/cosign
 sudo chmod +x /usr/local/bin/cosign
 
@@ -779,7 +782,12 @@ This section documents the offline installation path for CI-VKS clusters with no
 #### Disconnected Topology Overview
 > **ⓘ NOTE — Flow (one-way):** [Connected Zone: tekton.dev / GHCR / Docker Hub / sigstore] → `skopeo copy` on Mirror Workstation → Local Manifest + Image Cache → (physical/secure transfer) → [Disconnected Zone: Internal Harbor Registry → CI-VKS Cluster]. The mirror workstation is the only component with outbound internet access.
 
-#### Step 1 — Prepare the Mirror Workstation
+#### Step 1 — Prepare the Mirror Workstation 
+```
+variable: TEKTON_PIPELINES_VERSION="v0.62.0"
+variable:TEKTON_TRIGGERS_VERSION="v0.29.0"
+ variable:TEKTON_DASHBOARD_VERSION="v0.51.0"
+```
 On a workstation that has temporary internet access, create a local staging area and pull the pinned manifests:
 ```bash
 mkdir -p ~/tekton-mirror/{manifests,images}
@@ -792,6 +800,9 @@ curl -Lo manifests/dashboard-${TEKTON_DASHBOARD_VERSION}.yaml   https://storage.
 
 #### Step 2 — Mirror Images to Internal Harbor
 Use `skopeo copy` to move each Tekton component image — and both supply chain security tool images — from its public source registry directly into the internal Harbor project, preserving the pinned tag:
+```
+ variable:SYFT_VERSION="v1.0.1"
+```
 ```bash
 skopeo copy   docker://gcr.io/tekton-releases/github.com/tektoncd/pipeline/cmd/controller:${TEKTON_PIPELINES_VERSION}   docker://${HARBOR_REGISTRY_HOST}/tekton-mirror/pipeline-controller:${TEKTON_PIPELINES_VERSION}
 
