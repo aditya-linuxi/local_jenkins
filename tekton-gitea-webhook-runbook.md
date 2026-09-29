@@ -1,4 +1,4 @@
-# Tekton + Gitea Webhook CI/CD Lab Runbook
+# Tekton + Gitea Webhook CI Implimentation
 
 ## 1. Purpose
 
